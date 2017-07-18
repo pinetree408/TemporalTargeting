@@ -5,6 +5,7 @@ import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -12,6 +13,7 @@ import android.view.ViewGroup;
 import android.view.animation.LinearInterpolator;
 import android.widget.TextView;
 
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -62,8 +64,12 @@ public class MainActivity extends Activity {
                 return false;
             }
         });
-        lm = new LanguageModel();
+        InputStream inputStream = getResources().openRawResource(R.raw.anc_all_count);
+        Log.d(TAG, "Start");
+        lm = new LanguageModel(inputStream);
+        Log.d(TAG, "End");
         alphabetList = lm.getAlphasFromPrefix("");
+
     }
 
     public void rotationItem() {
@@ -112,7 +118,10 @@ public class MainActivity extends Activity {
         }
         int minIndex = distanceList.indexOf(Collections.min(distanceList));
         TextView resultView = (TextView) alphabetContainer.getChildAt(minIndex);
-        inputView.setText(inputView.getText().toString() + resultView.getText().toString());
+        String input = inputView.getText().toString() + resultView.getText().toString();
+        counter = 0;
+        alphabetList = lm.getAlphasFromPrefix(input);
+        inputView.setText(input);
     }
 
     @Override
