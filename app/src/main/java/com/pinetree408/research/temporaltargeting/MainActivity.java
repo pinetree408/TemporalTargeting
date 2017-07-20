@@ -15,6 +15,7 @@ import android.widget.TextView;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Timer;
@@ -26,6 +27,13 @@ public class MainActivity extends Activity {
     ViewGroup alphabetContainer;
     int counter = 0;
     List<String> alphabetList;
+    String[] initAlpList = {
+            "t", "a", "i", "s", "o",
+            "w", "c", "b", "h", "m",
+            "p", "f", "d", "n", "r",
+            "l", "e", "g", "y", "u",
+            "k", "j", "v", "q", "x", "z"
+    };
     private Timer mTimer;
     private TimerTask mTask;
     LanguageModel lm;
@@ -51,7 +59,7 @@ public class MainActivity extends Activity {
             }
         };
         mTimer = new Timer();
-        mTimer.schedule(mTask, 500, 500);
+        mTimer.schedule(mTask, 5000, 500);
         View task = findViewById(R.id.task);
         task.setOnTouchListener(new View.OnTouchListener() {
             @Override
@@ -64,12 +72,9 @@ public class MainActivity extends Activity {
                 return false;
             }
         });
-        InputStream inputStream = getResources().openRawResource(R.raw.anc_all_count);
-        Log.d(TAG, "Start");
+        InputStream inputStream = getResources().openRawResource(R.raw.word_set);
         lm = new LanguageModel(inputStream);
-        Log.d(TAG, "End");
-        alphabetList = lm.getAlphasFromPrefix("");
-
+        alphabetList = Arrays.asList(initAlpList);
     }
 
     public void rotationItem() {
