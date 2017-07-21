@@ -26,23 +26,22 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="suggetion1"
+            android:id="@+id/suggest1"
             />
         <TextView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="suggetion2"
+            android:id="@+id/suggest2"
             />
         <TextView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="suggetion3"
+            android:id="@+id/suggest3"
             />
-
         <RelativeLayout
             android:id="@+id/container"
             android:layout_width="match_parent"

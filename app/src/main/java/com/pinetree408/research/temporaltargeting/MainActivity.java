@@ -4,6 +4,7 @@ import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Gravity;
@@ -38,6 +39,9 @@ public class MainActivity extends Activity {
     private TimerTask mTask;
     LanguageModel lm;
 
+    TextView inputView;
+    private List<TextView> suggestViewList;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -59,8 +63,8 @@ public class MainActivity extends Activity {
             }
         };
         mTimer = new Timer();
-        mTimer.schedule(mTask, 5000, 500);
-        View task = findViewById(R.id.task);
+        mTimer.schedule(mTask, 4000, 500);
+        View task = findViewById(R.id.container);
         task.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -73,8 +77,31 @@ public class MainActivity extends Activity {
             }
         });
         InputStream inputStream = getResources().openRawResource(R.raw.word_set);
-        lm = new LanguageModel(inputStream);
+        InputStream[] params = {inputStream};
+        new LmInitTask().execute(params);
+
         alphabetList = Arrays.asList(initAlpList);
+
+        inputView = (TextView) findViewById(R.id.input);
+        suggestViewList = new ArrayList<>();
+        suggestViewList.add((TextView) findViewById(R.id.suggest1));
+        suggestViewList.add((TextView) findViewById(R.id.suggest2));
+        suggestViewList.add((TextView) findViewById(R.id.suggest3));
+
+        for (final TextView suggestView : suggestViewList) {
+            suggestView.setOnTouchListener(new View.OnTouchListener() {
+                @Override
+                public boolean onTouch(View v, MotionEvent event) {
+                    switch (event.getAction()){
+                        case MotionEvent.ACTION_DOWN:
+                            inputView.setText(suggestView.getText());
+                            break;
+                    }
+                    return false;
+                }
+            });
+        }
+
     }
 
     public void rotationItem() {
@@ -113,7 +140,6 @@ public class MainActivity extends Activity {
     }
 
     public void selectNearestItem() {
-        TextView inputView = (TextView) findViewById(R.id.input);
         int childCount = alphabetContainer.getChildCount();
         List<Float> distanceList = new ArrayList<>();
         for (int i = 0; i < childCount - 1; i++) {
@@ -124,9 +150,105 @@ public class MainActivity extends Activity {
         int minIndex = distanceList.indexOf(Collections.min(distanceList));
         TextView resultView = (TextView) alphabetContainer.getChildAt(minIndex);
         String input = inputView.getText().toString() + resultView.getText().toString();
-        counter = 0;
-        alphabetList = lm.getAlphasFromPrefix(input);
+
+        String[] params = {input};
+        new AlpSuggestionTask().execute(params);
+        new WordSuggestionTask().execute(params);
+
         inputView.setText(input);
+    }
+
+    public class WordSuggestionTask extends AsyncTask<String, Void, List<String>> {
+
+        @Override
+        protected void onPreExecute() {
+            super.onPreExecute();
+        }
+
+        protected List<String> doInBackground(String... params) {
+
+            String input = params[0];
+
+
+            counter = 0;
+            List<String> ret = new ArrayList<>();
+
+            long startTime = System.currentTimeMillis();
+            List<String> wordList = lm.getWordsFromPrefix(input);
+            System.out.println("Word : " + Long.toString(System.currentTimeMillis() - startTime));
+
+            for (int i = 0; i < 3; i++) {
+                if (i < wordList.size()) {
+                    ret.add(wordList.get(i));
+                } else {
+                    break;
+                }
+            }
+            return ret;
+        }
+
+        @Override
+        protected void onPostExecute(final List<String> suggestedList) {
+            super.onPostExecute(suggestedList);
+
+            for (TextView suggestView : suggestViewList) {
+                suggestView.setText("");
+            }
+
+            for (int i = 0; i < suggestViewList.size(); i++){
+                if (i < suggestedList.size()) {
+                    suggestViewList.get(i).setText(suggestedList.get(i));
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    public class AlpSuggestionTask extends AsyncTask<String, Void, String> {
+
+        @Override
+        protected void onPreExecute() {
+            super.onPreExecute();
+        }
+
+        protected String doInBackground(String... params) {
+
+            String input = params[0];
+
+            long startTime = System.currentTimeMillis();
+
+            alphabetList = lm.getAlphasFromPrefix(input);
+
+            System.out.println("Alp : " + Long.toString(System.currentTimeMillis() - startTime));
+
+            counter = 0;
+            return "done";
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            super.onPostExecute(result);
+        }
+    }
+
+    public class LmInitTask extends AsyncTask<InputStream, Void, String> {
+
+        @Override
+        protected void onPreExecute() {
+            super.onPreExecute();
+        }
+
+        protected String doInBackground(InputStream... params) {
+            InputStream input = params[0];
+            lm = new LanguageModel(input);
+            return "done";
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            super.onPostExecute(result);
+        }
     }
 
     @Override
