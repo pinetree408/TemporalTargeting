@@ -17,7 +17,16 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:textSize="20dp"
+            android:textSize="15dp"
+            android:gravity="center"
+            android:id="@+id/target"
+            android:text="my watch fell in the water"
+            />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:textSize="15dp"
             android:gravity="center"
             android:id="@+id/input"
             />
@@ -48,7 +57,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1">
             <TextView
-                android:layout_width="40dp"
+                android:layout_width="30dp"
                 android:layout_height="match_parent"
                 android:layout_centerInParent="true"
                 android:background="@drawable/border"
