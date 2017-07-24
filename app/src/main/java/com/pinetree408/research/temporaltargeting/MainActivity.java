@@ -4,6 +4,7 @@ import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.graphics.Rect;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -49,6 +50,12 @@ public class MainActivity extends Activity {
 
     Long startTime;
 
+    ViewGroup taskView;
+    private int dragThreshold = 30;
+    private final double angleFactor = (double) 180/Math.PI;
+    private float touchDownX, touchDownY;
+    private long touchDownTime;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -72,22 +79,6 @@ public class MainActivity extends Activity {
         mTimer = new Timer();
         mTimer.schedule(mTask, 3000, 500);
 
-        View task = findViewById(R.id.container);
-        task.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                switch (event.getAction()){
-                    case MotionEvent.ACTION_DOWN:
-                        if (startTime == null) {
-                            startTime = System.currentTimeMillis();
-                        }
-                        selectNearestItem();
-                        break;
-                }
-                return false;
-            }
-        });
-
         final InputStream inputStream = getResources().openRawResource(R.raw.word_set);
         InputStream[] params = {inputStream};
         new LmInitTask().execute(params);
@@ -100,41 +91,6 @@ public class MainActivity extends Activity {
         suggestViewList.add((TextView) findViewById(R.id.suggest2));
         suggestViewList.add((TextView) findViewById(R.id.suggest3));
 
-        for (final TextView suggestView : suggestViewList) {
-            suggestView.setOnTouchListener(new View.OnTouchListener() {
-                @Override
-                public boolean onTouch(View v, MotionEvent event) {
-                    switch (event.getAction()){
-                        case MotionEvent.ACTION_DOWN:
-                            nowInput = "";
-                            if (preWords.length() != 0) {
-                                preWords = preWords + " " + suggestView.getText();
-                            } else {
-                                preWords = suggestView.getText().toString();
-                            }
-                            inputView.setText(preWords);
-                            alphabetList = Arrays.asList(initAlpList);
-                            counter = 0;
-                            for (int i = 0; i < suggestViewList.size(); i++){
-                                suggestViewList.get(i).setText("");
-                            }
-
-                            if (preWords.equals(targetView.getText())) {
-                                targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
-                                nowInput = "";
-                                preWords = "";
-                                inputView.setText("");
-                                double wpm = 5.0 / (((System.currentTimeMillis() - startTime) / 1000.0) / 60);
-                                System.out.println(wpm);
-                                startTime = System.currentTimeMillis();
-                            }
-
-                            break;
-                    }
-                    return false;
-                }
-            });
-        }
         nowInput = "";
         preWords = "";
 
@@ -142,6 +98,130 @@ public class MainActivity extends Activity {
         targetView = (TextView) findViewById(R.id.target);
         random = new Random();
         targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
+
+        taskView = (ViewGroup) findViewById(R.id.task);
+        taskView.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                // TODO Auto-generated method stub
+                int tempX = (int) event.getAxisValue(MotionEvent.AXIS_X);
+                int tempY = (int) event.getAxisValue(MotionEvent.AXIS_Y);
+                long eventTime = System.currentTimeMillis();
+
+                switch(event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        if (taskView.getClass() == v.getClass()) {
+                            touchDownTime = eventTime;
+                            touchDownX = tempX;
+                            touchDownY = tempY;
+                        }
+                        break;
+                    case MotionEvent.ACTION_UP:
+                        long touchTime = eventTime - touchDownTime;
+                        int xDir = (int) (touchDownX - tempX);
+                        int yDir = (int) (touchDownY - tempY);
+                        int len = (int) Math.sqrt(xDir * xDir + yDir * yDir);
+                        int speed;
+                        if (touchTime > 0) {
+                            speed = (int) (len * 1000 / touchTime);
+                        } else {
+                            speed = 0;
+                        }
+                        if (len > dragThreshold) {
+                            if (speed > 400) {
+                                double angle = Math.acos((double) xDir / len) * angleFactor;
+                                if (yDir < 0) {
+                                    angle = 360 - angle;
+                                }
+                                angle += 45;
+                                int id = (int) (angle / 90);
+                                if (id > 3) {
+                                    id = 0;
+                                }
+                                switch (id){
+                                    case 0:
+                                        //left
+                                        break;
+                                    case 1:
+                                        //top;
+                                        if (nowInput.length() != 0) {
+                                            nowInput = "";
+                                        } else {
+                                            String[] history = preWords.split("\\s");
+                                            String newPreWords = "";
+                                            for (int i = 0; i < history.length - 1; i++) {
+                                                if (i != 0) {
+                                                    newPreWords += " ";
+                                                }
+                                                newPreWords += history[i];
+                                            }
+                                            preWords = newPreWords;
+                                        }
+                                        inputView.setText(preWords);
+                                        alphabetList = Arrays.asList(initAlpList);
+                                        counter = 0;
+                                        for (int i = 0; i < suggestViewList.size(); i++){
+                                            suggestViewList.get(i).setText("");
+                                        }
+                                        break;
+                                    case 2:
+                                        //right
+                                        break;
+                                    case 3:
+                                        //bottom;
+                                        break;
+                                }
+                            }
+                        } else {
+                            int selectedViewId = taskView.getId();
+                            for (int i = 0; i < taskView.getChildCount(); i++) {
+                                View child = taskView.getChildAt(i);
+                                Rect bounds = new Rect();
+                                child.getHitRect(bounds);
+                                if (bounds.contains(tempX, tempY)) {
+                                    selectedViewId = child.getId();
+                                    break;
+                                }
+                            }
+                            switch (selectedViewId) {
+                                case R.id.container:
+                                    if (startTime == null) {
+                                        startTime = System.currentTimeMillis();
+                                    }
+                                    selectNearestItem();
+                                    break;
+                                case R.id.suggest1:case R.id.suggest2:case R.id.suggest3:
+                                    TextView selectedView = (TextView) findViewById(selectedViewId);
+                                    nowInput = "";
+                                    if (preWords.length() != 0) {
+                                        preWords = preWords + " " + selectedView.getText();
+                                    } else {
+                                        preWords = selectedView.getText().toString();
+                                    }
+                                    inputView.setText(preWords);
+                                    alphabetList = Arrays.asList(initAlpList);
+                                    counter = 0;
+                                    for (int i = 0; i < suggestViewList.size(); i++){
+                                        suggestViewList.get(i).setText("");
+                                    }
+
+                                    if (preWords.equals(targetView.getText())) {
+                                        targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
+                                        nowInput = "";
+                                        preWords = "";
+                                        inputView.setText("");
+                                        double wpm = 5.0 / (((System.currentTimeMillis() - startTime) / 1000.0) / 60);
+                                        System.out.println(wpm);
+                                        startTime = System.currentTimeMillis();
+                                    }
+                                    break;
+                            }
+                        }
+                        break;
+                }
+                return true;
+            }
+        });
     }
 
     public void rotationItem() {
