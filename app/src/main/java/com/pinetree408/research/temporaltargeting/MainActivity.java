@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -38,8 +39,15 @@ public class MainActivity extends Activity {
 
     TextView inputView;
     private List<TextView> suggestViewList;
+
     String nowInput;
     String preWords;
+
+    String[] mackenzieSet;
+    TextView targetView;
+    Random random;
+
+    Long startTime;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,6 +78,9 @@ public class MainActivity extends Activity {
             public boolean onTouch(View v, MotionEvent event) {
                 switch (event.getAction()){
                     case MotionEvent.ACTION_DOWN:
+                        if (startTime == null) {
+                            startTime = System.currentTimeMillis();
+                        }
                         selectNearestItem();
                         break;
                 }
@@ -107,6 +118,17 @@ public class MainActivity extends Activity {
                             for (int i = 0; i < suggestViewList.size(); i++){
                                 suggestViewList.get(i).setText("");
                             }
+
+                            if (preWords.equals(targetView.getText())) {
+                                targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
+                                nowInput = "";
+                                preWords = "";
+                                inputView.setText("");
+                                double wpm = 5.0 / (((System.currentTimeMillis() - startTime) / 1000.0) / 60);
+                                System.out.println(wpm);
+                                startTime = System.currentTimeMillis();
+                            }
+
                             break;
                     }
                     return false;
@@ -115,6 +137,11 @@ public class MainActivity extends Activity {
         }
         nowInput = "";
         preWords = "";
+
+        mackenzieSet = Mackenzie.mackenzieSet;
+        targetView = (TextView) findViewById(R.id.target);
+        random = new Random();
+        targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
     }
 
     public void rotationItem() {

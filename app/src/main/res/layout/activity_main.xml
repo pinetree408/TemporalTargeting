@@ -17,16 +17,16 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:textSize="15dp"
+            android:textSize="10dp"
             android:gravity="center"
             android:id="@+id/target"
-            android:text="my watch fell in the water"
+            android:textColor="@color/orange"
             />
         <TextView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:textSize="15dp"
+            android:textSize="10dp"
             android:gravity="center"
             android:id="@+id/input"
             />
