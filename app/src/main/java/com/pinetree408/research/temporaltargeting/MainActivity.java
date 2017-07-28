@@ -1,17 +1,18 @@
 package com.pinetree408.research.temporaltargeting;
 
-import android.animation.Animator;
-import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.app.Activity;
-import android.graphics.Rect;
+import android.content.Context;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.LinearInterpolator;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 import java.io.InputStream;
@@ -20,13 +21,25 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
-import java.util.Timer;
-import java.util.TimerTask;
 
-public class MainActivity extends Activity {
-    ViewGroup alphabetContainer;
-    int counter = 0;
-    List<String> alphabetList;
+public class MainActivity extends Activity implements SensorEventListener {
+
+    // sensors
+    private Sensor mAccSensor;
+    private Sensor mMagSensor;
+    private SensorManager mSensorManager;
+
+    private final float[] mAccelerometerReading = new float[3];
+    private final float[] mMagnetometerReading = new float[3];
+
+    private final float[] mRotationMatrix = new float[9];
+    private final float[] mOrientationAngles = new float[3];
+    private final float[] mXY = new float[2];
+
+    private List<float[]> mSignal;
+    int bufferSize = 10;
+
+    // Alphabets
     String[] initAlpList = {
             "t", "a", "i", "s", "o",
             "w", "c", "b", "h", "m",
@@ -34,9 +47,10 @@ public class MainActivity extends Activity {
             "l", "e", "g", "y", "u",
             "k", "j", "v", "q", "x", "z"
     };
-    private Timer mTimer;
-    private TimerTask mTask;
-    LanguageModel lm;
+    float centerY = 135;
+
+    ViewGroup alphabetContainer;
+
 
     TextView inputView;
     private List<TextView> suggestViewList;
@@ -44,13 +58,17 @@ public class MainActivity extends Activity {
     String nowInput;
     String preWords;
 
+    LanguageModel lm;
+    List<String> alphabetList;
+
     String[] mackenzieSet;
     TextView targetView;
     Random random;
 
     Long startTime;
 
-    ViewGroup taskView;
+    TextView tempView;
+
     private int dragThreshold = 30;
     private final double angleFactor = (double) 180/Math.PI;
     private float touchDownX, touchDownY;
@@ -60,30 +78,27 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        alphabetContainer = (ViewGroup) findViewById(R.id.container);
-        mTask = new TimerTask() {
-            @Override
-            public void run() {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        rotationItem();
-                        counter++;
-                        if (counter == 26) {
-                            counter = 0;
-                        }
-                    }
-                });
-            }
-        };
-        mTimer = new Timer();
-        mTimer.schedule(mTask, 3000, 500);
 
         final InputStream inputStream = getResources().openRawResource(R.raw.word_set);
         InputStream[] params = {inputStream};
         new LmInitTask().execute(params);
 
+        mackenzieSet = Mackenzie.mackenzieSet;
+        targetView = (TextView) findViewById(R.id.target);
+        random = new Random();
+        targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
+
         alphabetList = Arrays.asList(initAlpList);
+
+        // init sensors
+        mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        mAccSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        mMagSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+        mSignal = new ArrayList<>();
+
+        // alpha
+        alphabetContainer = (ViewGroup) findViewById(R.id.alphabet_view);
+        generateAlpList();
 
         inputView = (TextView) findViewById(R.id.input);
         suggestViewList = new ArrayList<>();
@@ -94,13 +109,8 @@ public class MainActivity extends Activity {
         nowInput = "";
         preWords = "";
 
-        mackenzieSet = Mackenzie.mackenzieSet;
-        targetView = (TextView) findViewById(R.id.target);
-        random = new Random();
-        targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
-
-        taskView = (ViewGroup) findViewById(R.id.task);
-        taskView.setOnTouchListener(new View.OnTouchListener() {
+        tempView = (TextView) findViewById(R.id.temp);
+        tempView.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 // TODO Auto-generated method stub
@@ -110,7 +120,7 @@ public class MainActivity extends Activity {
 
                 switch(event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
-                        if (taskView.getClass() == v.getClass()) {
+                        if (tempView.getClass() == v.getClass()) {
                             touchDownTime = eventTime;
                             touchDownX = tempX;
                             touchDownY = tempY;
@@ -141,9 +151,6 @@ public class MainActivity extends Activity {
                                 switch (id){
                                     case 0:
                                         //left
-                                        break;
-                                    case 1:
-                                        //top;
                                         if (nowInput.length() != 0) {
                                             nowInput = "";
                                         } else {
@@ -159,10 +166,17 @@ public class MainActivity extends Activity {
                                         }
                                         inputView.setText(preWords);
                                         alphabetList = Arrays.asList(initAlpList);
-                                        counter = 0;
+                                        int size = alphabetContainer.getChildCount();
+                                        for (int i = 1; i < size; i++) {
+                                            alphabetContainer.removeViewAt(alphabetContainer.getChildCount()-1);
+                                        }
+                                        generateAlpList();
                                         for (int i = 0; i < suggestViewList.size(); i++){
                                             suggestViewList.get(i).setText("");
                                         }
+                                        break;
+                                    case 1:
+                                        //top;
                                         break;
                                     case 2:
                                         //right
@@ -173,115 +187,182 @@ public class MainActivity extends Activity {
                                 }
                             }
                         } else {
-                            int selectedViewId = taskView.getId();
-                            for (int i = 0; i < taskView.getChildCount(); i++) {
-                                View child = taskView.getChildAt(i);
-                                Rect bounds = new Rect();
-                                child.getHitRect(bounds);
-                                if (bounds.contains(tempX, tempY)) {
-                                    selectedViewId = child.getId();
-                                    break;
-                                }
+                            if (startTime == null) {
+                                startTime = System.currentTimeMillis();
                             }
-                            switch (selectedViewId) {
-                                case R.id.container:
-                                    if (startTime == null) {
-                                        startTime = System.currentTimeMillis();
-                                    }
-                                    selectNearestItem();
-                                    break;
-                                case R.id.suggest1:case R.id.suggest2:case R.id.suggest3:
-                                    TextView selectedView = (TextView) findViewById(selectedViewId);
-                                    nowInput = "";
-                                    if (preWords.length() != 0) {
-                                        preWords = preWords + " " + selectedView.getText();
-                                    } else {
-                                        preWords = selectedView.getText().toString();
-                                    }
-                                    inputView.setText(preWords);
-                                    alphabetList = Arrays.asList(initAlpList);
-                                    counter = 0;
-                                    for (int i = 0; i < suggestViewList.size(); i++){
-                                        suggestViewList.get(i).setText("");
-                                    }
 
-                                    if (preWords.equals(targetView.getText())) {
-                                        targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
-                                        nowInput = "";
-                                        preWords = "";
-                                        inputView.setText("");
-                                        double wpm = 5.0 / (((System.currentTimeMillis() - startTime) / 1000.0) / 60);
-                                        System.out.println(wpm);
-                                        startTime = System.currentTimeMillis();
-                                    }
-                                    break;
+                            List<Float> distanceList = new ArrayList<>();
+                            for (int i = 1; i < alphabetContainer.getChildCount(); i++) {
+                                View child = alphabetContainer.getChildAt(i);
+                                float distance = Math.abs((alphabetContainer.getHeight() / 2.0f) - (child.getY() + 25));
+                                distanceList.add(distance);
                             }
+                            int minIndex = distanceList.indexOf(Collections.min(distanceList));
+                            TextView resultView = (TextView) alphabetContainer.getChildAt(minIndex + 1);
+
+                            nowInput = nowInput + resultView.getText().toString();
+                            String[] params = {nowInput};
+                            new WordSuggestionTask().execute(params);
+
+                            alphabetList = lm.getAlphasFromPrefix(nowInput);
+                            int size = alphabetContainer.getChildCount();
+                            for (int i = 1; i < size; i++) {
+                                alphabetContainer.removeViewAt(alphabetContainer.getChildCount()-1);
+                            }
+                            generateAlpList();
+
+                            String visualizeString = "";
+                            if (preWords.length() != 0) {
+                                visualizeString = preWords + " " + nowInput;
+                            } else {
+                                visualizeString = nowInput;
+                            }
+                            inputView.setText(visualizeString);
+                            break;
                         }
                         break;
                 }
                 return true;
             }
         });
-    }
 
-    public void rotationItem() {
-        final TextView testView = new TextView(this);
-        testView.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        testView.setText(alphabetList.get(counter));
-        testView.setGravity(Gravity.CENTER);
-        testView.setTextSize(20);
+        for (final TextView suggestView : suggestViewList) {
+            suggestView.setOnTouchListener(new View.OnTouchListener() {
+                @Override
+                public boolean onTouch(View v, MotionEvent event) {
+                    switch (event.getAction()){
+                        case MotionEvent.ACTION_DOWN:
+                            nowInput = "";
+                            if (preWords.length() != 0) {
+                                preWords = preWords + " " + suggestView.getText();
+                            } else {
+                                preWords = suggestView.getText().toString();
+                            }
+                            inputView.setText(preWords);
+                            alphabetList = Arrays.asList(initAlpList);
+                            int size = alphabetContainer.getChildCount();
+                            for (int i = 1; i < size; i++) {
+                                alphabetContainer.removeViewAt(alphabetContainer.getChildCount()-1);
+                            }
+                            generateAlpList();
+                            for (int i = 0; i < suggestViewList.size(); i++){
+                                suggestViewList.get(i).setText("");
+                            }
 
-        ObjectAnimator testAni = ObjectAnimator.ofFloat(testView, "translationX", 320f, 0f);
-        testAni.setDuration(3000);
-        testAni.setInterpolator(new LinearInterpolator());
-        testAni.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-            @Override
-            public void onAnimationUpdate(ValueAnimator animation) {
-                testView.setX((Float)animation.getAnimatedValue());
-            }
-        });
-        testAni.addListener(new Animator.AnimatorListener() {
-            @Override
-            public void onAnimationStart(Animator animation) {
-            }
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                alphabetContainer.removeView(testView);
-            }
-            @Override
-            public void onAnimationCancel(Animator animation) {
-            }
-            @Override
-            public void onAnimationRepeat(Animator animation) {
-            }
-        });
-        testAni.start();
-        alphabetContainer.addView(testView, 0);
-    }
+                            if (preWords.equals(targetView.getText())) {
+                                targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
+                                nowInput = "";
+                                preWords = "";
+                                inputView.setText("");
+                                double wpm = 5.0 / (((System.currentTimeMillis() - startTime) / 1000.0) / 60);
+                                tempView.setText(Double.toString(wpm));
+                                startTime = System.currentTimeMillis();
+                            }
 
-    public void selectNearestItem() {
-        int childCount = alphabetContainer.getChildCount();
-        List<Float> distanceList = new ArrayList<>();
-        for (int i = 0; i < childCount - 1; i++) {
-            View child = alphabetContainer.getChildAt(i);
-            float distance = Math.abs((alphabetContainer.getWidth() / 2.0f) - child.getX());
-            distanceList.add(distance);
+                            break;
+                    }
+                    return false;
+                }
+            });
         }
-        int minIndex = distanceList.indexOf(Collections.min(distanceList));
-        TextView resultView = (TextView) alphabetContainer.getChildAt(minIndex);
 
-        nowInput = nowInput + resultView.getText().toString();
-        String[] params = {nowInput};
-        new WordSuggestionTask().execute(params);
-        new AlpSuggestionTask().execute(params);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
 
-        String visualizeString = "";
-        if (preWords.length() != 0) {
-            visualizeString = preWords + " " + nowInput;
+    public void generateAlpList() {
+        for (int i = 0; i < alphabetList.size(); i++) {
+            final TextView testView = new TextView(this);
+            testView.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 50));
+            testView.setY(i * 50 + centerY);
+            testView.setText(alphabetList.get(i));
+            testView.setGravity(Gravity.CENTER);
+            testView.setTextSize(20);
+            alphabetContainer.addView(testView);
+        }
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if(event.sensor.getType() ==  Sensor.TYPE_ACCELEROMETER) {
+            System.arraycopy(event.values, 0, mAccelerometerReading, 0, mAccelerometerReading.length);
+        } else if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
+            System.arraycopy(event.values, 0, mMagnetometerReading,  0, mMagnetometerReading.length);
+        }
+
+        updateOrientationAngles();
+    }
+
+    public void updateOrientationAngles() {
+        mSensorManager.getRotationMatrix(mRotationMatrix, null, mAccelerometerReading, mMagnetometerReading);
+        mSensorManager.getOrientation(mRotationMatrix, mOrientationAngles);
+
+        float yaw = mOrientationAngles[0];
+        float pitch = mOrientationAngles[1];
+        float roll = mOrientationAngles[2];
+        convertToXY(mXY, pitch, roll, yaw);
+        if (mSignal.size() < bufferSize) {
+            mSignal.add(mXY);
         } else {
-            visualizeString = nowInput;
+            mSignal.remove(0);
+            mSignal.add(mXY);
         }
-        inputView.setText(visualizeString);
+
+        float meanY = getYMean();
+
+        View checkedView;
+        boolean updateFlag = false;
+
+        if (meanY < 0) {
+            checkedView = alphabetContainer.getChildAt(alphabetContainer.getChildCount()-1);
+            if ((checkedView.getY() - centerY) > 0) {
+                updateFlag = true;
+            }
+        } else {
+            checkedView = alphabetContainer.getChildAt(1);
+            if ((checkedView.getY() - centerY) < 0) {
+                updateFlag = true;
+            }
+        }
+
+        if (updateFlag) {
+            for (int i = 1; i < alphabetContainer.getChildCount(); i++) {
+                View child = alphabetContainer.getChildAt(i);
+                child.setY(child.getY() + (meanY * 5));
+            }
+        }
+    }
+
+    public void convertToXY(float[] xy, float pitch, float roll, float yaw) {
+        // Sun, Ke, et al. "Float: One-Handed and Touch-Free Target Selection on Smartwatches." Proceedings of the 2017 CHI Conference on Human Factors in Computing Systems. ACM, 2017.
+        //pitch = -pitch;
+        //roll = -roll;
+        xy[0] = (float) (Math.cos(pitch) * Math.sin(roll));
+        xy[1] = (float) (-1 * Math.sin(pitch));
+    }
+
+    public float getXMean() {
+        float x = 0f;
+        for (float[] item : mSignal) {
+            x += item[0];
+        }
+        x /= mSignal.size();
+        return x;
+    }
+
+    public float getYMean() {
+        float y = 0f;
+        for (float[] item : mSignal) {
+            y += item[1];
+        }
+        y /= mSignal.size();
+        return y;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        mSensorManager.registerListener(this, mAccSensor, SensorManager.SENSOR_DELAY_GAME); // 20 ms, 50Hz
+        mSensorManager.registerListener(this, mMagSensor, SensorManager.SENSOR_DELAY_GAME); // 20 ms, 50Hz
     }
 
     public class WordSuggestionTask extends AsyncTask<String, Void, List<String>> {
@@ -319,7 +400,6 @@ public class MainActivity extends Activity {
         protected String doInBackground(String... params) {
             String input = params[0];
             alphabetList = lm.getAlphasFromPrefix(input);
-            counter = 0;
             return "done";
         }
         @Override
@@ -341,12 +421,17 @@ public class MainActivity extends Activity {
         @Override
         protected void onPostExecute(String result) {
             super.onPostExecute(result);
+            tempView.setText(result);
         }
     }
 
     @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
+    }
+
+    @Override
     protected void onDestroy() {
-        mTimer.cancel();
         super.onDestroy();
     }
 }
