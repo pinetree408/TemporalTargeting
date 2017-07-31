@@ -8,6 +8,8 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.text.SpannableString;
+import android.text.style.UnderlineSpan;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -105,6 +107,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         suggestViewList.add((TextView) findViewById(R.id.suggest1));
         suggestViewList.add((TextView) findViewById(R.id.suggest2));
         suggestViewList.add((TextView) findViewById(R.id.suggest3));
+        suggestViewList.add((TextView) findViewById(R.id.suggest4));
 
         nowInput = "";
         preWords = "";
@@ -164,7 +167,9 @@ public class MainActivity extends Activity implements SensorEventListener {
                                             }
                                             preWords = newPreWords;
                                         }
-                                        inputView.setText(preWords);
+                                        SpannableString content = new SpannableString(preWords);
+                                        content.setSpan(new UnderlineSpan(), 0, content.length(), 0);
+                                        inputView.setText(content);
                                         alphabetList = Arrays.asList(initAlpList);
                                         int size = alphabetContainer.getChildCount();
                                         for (int i = 1; i < size; i++) {
@@ -217,7 +222,9 @@ public class MainActivity extends Activity implements SensorEventListener {
                             } else {
                                 visualizeString = nowInput;
                             }
-                            inputView.setText(visualizeString);
+                            SpannableString content = new SpannableString(visualizeString);
+                            content.setSpan(new UnderlineSpan(), 0, content.length(), 0);
+                            inputView.setText(content);
                             break;
                         }
                         break;
@@ -238,7 +245,9 @@ public class MainActivity extends Activity implements SensorEventListener {
                             } else {
                                 preWords = suggestView.getText().toString();
                             }
-                            inputView.setText(preWords);
+                            SpannableString content = new SpannableString(preWords);
+                            content.setSpan(new UnderlineSpan(), 0, content.length(), 0);
+                            inputView.setText(content);
                             alphabetList = Arrays.asList(initAlpList);
                             int size = alphabetContainer.getChildCount();
                             for (int i = 1; i < size; i++) {
