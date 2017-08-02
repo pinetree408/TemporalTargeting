@@ -2,6 +2,7 @@ package com.pinetree408.research.temporaltargeting;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Color;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -225,6 +226,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                             SpannableString content = new SpannableString(visualizeString);
                             content.setSpan(new UnderlineSpan(), 0, content.length(), 0);
                             inputView.setText(content);
+
                             break;
                         }
                         break;
@@ -335,8 +337,13 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         if (updateFlag) {
             for (int i = 1; i < alphabetContainer.getChildCount(); i++) {
-                View child = alphabetContainer.getChildAt(i);
+                TextView child = (TextView) alphabetContainer.getChildAt(i);
                 child.setY(child.getY() + (meanY * 5));
+                if ((122.5 < child.getY()) && (child.getY() < 160)) {
+                    child.setTextColor(Color.RED);
+                } else {
+                    child.setTextColor(Color.WHITE);
+                }
             }
         }
     }
