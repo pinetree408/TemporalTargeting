@@ -2,35 +2,42 @@ package com.pinetree408.research.temporaltargeting;
 
 import android.app.Activity;
 import android.content.Context;
-import android.graphics.Color;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.text.SpannableString;
-import android.text.style.UnderlineSpan;
+import android.util.Log;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.TextView;
 
-import java.io.InputStream;
+import org.json.JSONObject;
+
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
-import java.util.Random;
+
+import io.socket.client.IO;
+import io.socket.client.Socket;
+import io.socket.emitter.Emitter;
 
 public class MainActivity extends Activity implements SensorEventListener {
+    private static final String TAG = MainActivity.class.getSimpleName();
 
     // sensors
     private Sensor mAccSensor;
+    private Sensor mGyro;
+    private Sensor mLinear;
     private Sensor mMagSensor;
     private SensorManager mSensorManager;
+
+    private static final float SHAKE_THRESHOLD = 2.0f;
+    private static final int SHAKE_WAIT_TIME_MS = 250;
 
     private final float[] mAccelerometerReading = new float[3];
     private final float[] mMagnetometerReading = new float[3];
@@ -46,50 +53,45 @@ public class MainActivity extends Activity implements SensorEventListener {
     String[] initAlpList = {
             "t", "a", "i", "s", "o",
             "w", "c", "b", "h", "m",
-            "p", "f", "d", "n", "r",
-            "l", "e", "g", "y", "u",
-            "k", "j", "v", "q", "x", "z"
+            //"p", "f", "d", "n", "r",
+            //"l", "e", "g", "y", "u",
+            //"k", "j", "v", "q", "x", "z"
     };
     float centerY = 135;
 
     ViewGroup alphabetContainer;
 
-
-    TextView inputView;
-    private List<TextView> suggestViewList;
-
-    String nowInput;
-    String preWords;
-
-    LanguageModel lm;
     List<String> alphabetList;
 
-    String[] mackenzieSet;
-    TextView targetView;
-    Random random;
+    TextView eventView;
+    TextView addedEventView;
 
-    Long startTime;
+    private long mShakeTime = 0;
 
-    TextView tempView;
+    private int modeFlag = 0;
 
-    private int dragThreshold = 30;
-    private final double angleFactor = (double) 180/Math.PI;
-    private float touchDownX, touchDownY;
-    private long touchDownTime;
+    //Socket socket;
+
+    String ip = "143.248.197.106";
+    int port = 5000;
+
+    Socket socket;
+
+    String globalState = "MIDDLE";
+
+    class TiltEvent {
+        public String action;
+        public float tiltValue;
+        public TiltEvent( String action, float tiltValue) {
+            this.action = action;
+            this.tiltValue = tiltValue;
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        final InputStream inputStream = getResources().openRawResource(R.raw.word_set);
-        InputStream[] params = {inputStream};
-        new LmInitTask().execute(params);
-
-        mackenzieSet = Mackenzie.mackenzieSet;
-        targetView = (TextView) findViewById(R.id.target);
-        random = new Random();
-        targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
 
         alphabetList = Arrays.asList(initAlpList);
 
@@ -97,187 +99,87 @@ public class MainActivity extends Activity implements SensorEventListener {
         mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         mAccSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         mMagSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+        mGyro = mSensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        mLinear = mSensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION);
+
         mSignal = new ArrayList<>();
 
         // alpha
         alphabetContainer = (ViewGroup) findViewById(R.id.alphabet_view);
         generateAlpList();
 
-        inputView = (TextView) findViewById(R.id.input);
-        suggestViewList = new ArrayList<>();
-        suggestViewList.add((TextView) findViewById(R.id.suggest1));
-        suggestViewList.add((TextView) findViewById(R.id.suggest2));
-        suggestViewList.add((TextView) findViewById(R.id.suggest3));
-        suggestViewList.add((TextView) findViewById(R.id.suggest4));
-
-        nowInput = "";
-        preWords = "";
-
-        tempView = (TextView) findViewById(R.id.temp);
-        tempView.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                // TODO Auto-generated method stub
-                int tempX = (int) event.getAxisValue(MotionEvent.AXIS_X);
-                int tempY = (int) event.getAxisValue(MotionEvent.AXIS_Y);
-                long eventTime = System.currentTimeMillis();
-
-                switch(event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        if (tempView.getClass() == v.getClass()) {
-                            touchDownTime = eventTime;
-                            touchDownX = tempX;
-                            touchDownY = tempY;
-                        }
-                        break;
-                    case MotionEvent.ACTION_UP:
-                        long touchTime = eventTime - touchDownTime;
-                        int xDir = (int) (touchDownX - tempX);
-                        int yDir = (int) (touchDownY - tempY);
-                        int len = (int) Math.sqrt(xDir * xDir + yDir * yDir);
-                        int speed;
-                        if (touchTime > 0) {
-                            speed = (int) (len * 1000 / touchTime);
-                        } else {
-                            speed = 0;
-                        }
-                        if (len > dragThreshold) {
-                            if (speed > 400) {
-                                double angle = Math.acos((double) xDir / len) * angleFactor;
-                                if (yDir < 0) {
-                                    angle = 360 - angle;
-                                }
-                                angle += 45;
-                                int id = (int) (angle / 90);
-                                if (id > 3) {
-                                    id = 0;
-                                }
-                                switch (id){
-                                    case 0:
-                                        //left
-                                        if (nowInput.length() != 0) {
-                                            nowInput = "";
-                                        } else {
-                                            String[] history = preWords.split("\\s");
-                                            String newPreWords = "";
-                                            for (int i = 0; i < history.length - 1; i++) {
-                                                if (i != 0) {
-                                                    newPreWords += " ";
-                                                }
-                                                newPreWords += history[i];
-                                            }
-                                            preWords = newPreWords;
-                                        }
-                                        SpannableString content = new SpannableString(preWords);
-                                        content.setSpan(new UnderlineSpan(), 0, content.length(), 0);
-                                        inputView.setText(content);
-                                        alphabetList = Arrays.asList(initAlpList);
-                                        int size = alphabetContainer.getChildCount();
-                                        for (int i = 1; i < size; i++) {
-                                            alphabetContainer.removeViewAt(alphabetContainer.getChildCount()-1);
-                                        }
-                                        generateAlpList();
-                                        for (int i = 0; i < suggestViewList.size(); i++){
-                                            suggestViewList.get(i).setText("");
-                                        }
-                                        break;
-                                    case 1:
-                                        //top;
-                                        break;
-                                    case 2:
-                                        //right
-                                        break;
-                                    case 3:
-                                        //bottom;
-                                        break;
-                                }
-                            }
-                        } else {
-                            if (startTime == null) {
-                                startTime = System.currentTimeMillis();
-                            }
-
-                            List<Float> distanceList = new ArrayList<>();
-                            for (int i = 1; i < alphabetContainer.getChildCount(); i++) {
-                                View child = alphabetContainer.getChildAt(i);
-                                float distance = Math.abs((alphabetContainer.getHeight() / 2.0f) - (child.getY() + 25));
-                                distanceList.add(distance);
-                            }
-                            int minIndex = distanceList.indexOf(Collections.min(distanceList));
-                            TextView resultView = (TextView) alphabetContainer.getChildAt(minIndex + 1);
-
-                            nowInput = nowInput + resultView.getText().toString();
-                            String[] params = {nowInput};
-                            new WordSuggestionTask().execute(params);
-
-                            alphabetList = lm.getAlphasFromPrefix(nowInput);
-                            int size = alphabetContainer.getChildCount();
-                            for (int i = 1; i < size; i++) {
-                                alphabetContainer.removeViewAt(alphabetContainer.getChildCount()-1);
-                            }
-                            generateAlpList();
-
-                            String visualizeString = "";
-                            if (preWords.length() != 0) {
-                                visualizeString = preWords + " " + nowInput;
-                            } else {
-                                visualizeString = nowInput;
-                            }
-                            SpannableString content = new SpannableString(visualizeString);
-                            content.setSpan(new UnderlineSpan(), 0, content.length(), 0);
-                            inputView.setText(content);
-
-                            break;
-                        }
-                        break;
-                }
-                return true;
-            }
-        });
-
-        for (final TextView suggestView : suggestViewList) {
-            suggestView.setOnTouchListener(new View.OnTouchListener() {
-                @Override
-                public boolean onTouch(View v, MotionEvent event) {
-                    switch (event.getAction()){
-                        case MotionEvent.ACTION_DOWN:
-                            nowInput = "";
-                            if (preWords.length() != 0) {
-                                preWords = preWords + " " + suggestView.getText();
-                            } else {
-                                preWords = suggestView.getText().toString();
-                            }
-                            SpannableString content = new SpannableString(preWords);
-                            content.setSpan(new UnderlineSpan(), 0, content.length(), 0);
-                            inputView.setText(content);
-                            alphabetList = Arrays.asList(initAlpList);
-                            int size = alphabetContainer.getChildCount();
-                            for (int i = 1; i < size; i++) {
-                                alphabetContainer.removeViewAt(alphabetContainer.getChildCount()-1);
-                            }
-                            generateAlpList();
-                            for (int i = 0; i < suggestViewList.size(); i++){
-                                suggestViewList.get(i).setText("");
-                            }
-
-                            if (preWords.equals(targetView.getText())) {
-                                targetView.setText(mackenzieSet[random.nextInt(mackenzieSet.length)]);
-                                nowInput = "";
-                                preWords = "";
-                                inputView.setText("");
-                                double wpm = 5.0 / (((System.currentTimeMillis() - startTime) / 1000.0) / 60);
-                                tempView.setText(Double.toString(wpm));
-                                startTime = System.currentTimeMillis();
-                            }
-
-                            break;
-                    }
-                    return false;
-                }
-            });
-        }
+        eventView = (TextView) findViewById(R.id.event);
+        addedEventView = (TextView) findViewById(R.id.added_event);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        try {
+            socket = IO.socket("http://" + ip + ":" + port + "/mynamespace");
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+        }
+
+        socket.on(Socket.EVENT_CONNECT, new Emitter.Listener() {
+
+            @Override
+            public void call(Object... args) {
+                modeFlag = 1;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        addedEventView.setText(Integer.toString(modeFlag));
+                    }
+                });
+                Log.d("Socket", "connect");
+            }
+
+        }).on("response", new Emitter.Listener() {
+
+            @Override
+            public void call(Object... args) {
+                try {
+                    JSONObject response = (JSONObject) args[0];
+
+                    String gesture = response.get("data").toString();
+
+
+                    if (globalState.equals("MIDDLE")) {
+                        if (gesture.equals("1")) {
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    for (int i = 1; i < alphabetContainer.getChildCount(); i++) {
+                                        TextView child = (TextView) alphabetContainer.getChildAt(i);
+                                        if ((122.5 < child.getY()) && (child.getY() < 160)) {
+                                            eventView.setText(child.getText());
+                                            break;
+                                        }
+                                    }
+                                }
+                            });
+                        } else if (gesture.equals("2")) {
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    eventView.setText("");
+                                }
+                            });
+                        }
+                    }
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+        }).on(Socket.EVENT_DISCONNECT, new Emitter.Listener() {
+
+            @Override
+            public void call(Object... args) {
+                Log.d("Socket", "disconnect");
+            }
+
+        });
     }
 
     public void generateAlpList() {
@@ -286,6 +188,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             testView.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 50));
             testView.setY(i * 50 + centerY);
             testView.setText(alphabetList.get(i));
+            testView.setText("Item " + i);
             testView.setGravity(Gravity.CENTER);
             testView.setTextSize(20);
             alphabetContainer.addView(testView);
@@ -294,16 +197,79 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @Override
     public void onSensorChanged(SensorEvent event) {
+
+        if (modeFlag == 1) {
+            if (event.sensor.getType() != 2) {
+                socket.emit("request",
+                        Integer.toString(event.sensor.getType()),
+                        (event.timestamp / 1000000),
+                        Float.toString(event.values[0]),
+                        Float.toString(event.values[1]),
+                        Float.toString(event.values[2]));
+            }
+        }
+
         if(event.sensor.getType() ==  Sensor.TYPE_ACCELEROMETER) {
             System.arraycopy(event.values, 0, mAccelerometerReading, 0, mAccelerometerReading.length);
+            detectShake(event);
         } else if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
             System.arraycopy(event.values, 0, mMagnetometerReading,  0, mMagnetometerReading.length);
         }
 
-        updateOrientationAngles();
+        TiltEvent te = updateOrientationAngles();
+        globalState = te.action;
+
+        View checkedView;
+        boolean updateFlag = false;
+
+        if (te.action.equals("UP")) {
+            checkedView = alphabetContainer.getChildAt(alphabetContainer.getChildCount()-1);
+            if ((checkedView.getY() - centerY) > 0) {
+                updateFlag = true;
+            }
+        } else if (te.action.equals("DOWN")) {
+            checkedView = alphabetContainer.getChildAt(1);
+            if ((checkedView.getY() - centerY) < 0) {
+                updateFlag = true;
+            }
+        }
+
+        if (updateFlag) {
+            for (int i = 1; i < alphabetContainer.getChildCount(); i++) {
+                TextView child = (TextView) alphabetContainer.getChildAt(i);
+                child.setY(child.getY() + (te.tiltValue * 1));
+            }
+        }
     }
 
-    public void updateOrientationAngles() {
+    private void detectShake(SensorEvent event) {
+        long now = System.currentTimeMillis();
+
+        if((now - mShakeTime) > SHAKE_WAIT_TIME_MS) {
+            mShakeTime = now;
+
+            float gX = event.values[0] / SensorManager.GRAVITY_EARTH;
+            float gY = event.values[1] / SensorManager.GRAVITY_EARTH;
+            float gZ = event.values[2] / SensorManager.GRAVITY_EARTH;
+
+            // gForce will be close to 1 when there is no movement
+            float gForce = (float) Math.sqrt(gX*gX + gY*gY + gZ*gZ);
+
+            // Change background color if gForce exceeds threshold;
+            // otherwise, reset the color
+            if(gForce > SHAKE_THRESHOLD) {
+                if (modeFlag == 0) {
+                    socket.connect();
+                } else {
+                    modeFlag = 0;
+                    socket.disconnect();
+                    addedEventView.setText(Integer.toString(modeFlag));
+                }
+            }
+        }
+    }
+
+    public TiltEvent updateOrientationAngles() {
         mSensorManager.getRotationMatrix(mRotationMatrix, null, mAccelerometerReading, mMagnetometerReading);
         mSensorManager.getOrientation(mRotationMatrix, mOrientationAngles);
 
@@ -320,32 +286,16 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         float meanY = getYMean();
 
-        View checkedView;
-        boolean updateFlag = false;
-
-        if (meanY < 0) {
-            checkedView = alphabetContainer.getChildAt(alphabetContainer.getChildCount()-1);
-            if ((checkedView.getY() - centerY) > 0) {
-                updateFlag = true;
-            }
+        String state = "";
+        if (meanY < - 0.2) {
+            state = "UP";
+        } else if (meanY < 0.2) {
+            state = "MIDDLE";
         } else {
-            checkedView = alphabetContainer.getChildAt(1);
-            if ((checkedView.getY() - centerY) < 0) {
-                updateFlag = true;
-            }
+            state = "DOWN";
         }
 
-        if (updateFlag) {
-            for (int i = 1; i < alphabetContainer.getChildCount(); i++) {
-                TextView child = (TextView) alphabetContainer.getChildAt(i);
-                child.setY(child.getY() + (meanY * 5));
-                if ((122.5 < child.getY()) && (child.getY() < 160)) {
-                    child.setTextColor(Color.RED);
-                } else {
-                    child.setTextColor(Color.WHITE);
-                }
-            }
-        }
+        return new TiltEvent(state, meanY);
     }
 
     public void convertToXY(float[] xy, float pitch, float roll, float yaw) {
@@ -377,68 +327,10 @@ public class MainActivity extends Activity implements SensorEventListener {
     @Override
     public void onResume() {
         super.onResume();
-        mSensorManager.registerListener(this, mAccSensor, SensorManager.SENSOR_DELAY_GAME); // 20 ms, 50Hz
-        mSensorManager.registerListener(this, mMagSensor, SensorManager.SENSOR_DELAY_GAME); // 20 ms, 50Hz
-    }
-
-    public class WordSuggestionTask extends AsyncTask<String, Void, List<String>> {
-        @Override
-        protected void onPreExecute() {
-            super.onPreExecute();
-        }
-        protected List<String> doInBackground(String... params) {
-            String input = params[0];
-            List<String> wordList = lm.getWordsFromPrefix(input);
-            List<String> ret = new ArrayList<>();
-            for (int i = 0; i < suggestViewList.size(); i++) {
-                if (i < wordList.size()) {
-                    ret.add(wordList.get(i));
-                } else {
-                    ret.add("");
-                }
-            }
-            return ret;
-        }
-        @Override
-        protected void onPostExecute(final List<String> suggestedList) {
-            super.onPostExecute(suggestedList);
-            for (int i = 0; i < suggestViewList.size(); i++){
-                suggestViewList.get(i).setText(suggestedList.get(i));
-            }
-        }
-    }
-
-    public class AlpSuggestionTask extends AsyncTask<String, Void, String> {
-        @Override
-        protected void onPreExecute() {
-            super.onPreExecute();
-        }
-        protected String doInBackground(String... params) {
-            String input = params[0];
-            alphabetList = lm.getAlphasFromPrefix(input);
-            return "done";
-        }
-        @Override
-        protected void onPostExecute(String result) {
-            super.onPostExecute(result);
-        }
-    }
-
-    public class LmInitTask extends AsyncTask<InputStream, Void, String> {
-        @Override
-        protected void onPreExecute() {
-            super.onPreExecute();
-        }
-        protected String doInBackground(InputStream... params) {
-            InputStream input = params[0];
-            lm = new LanguageModel(input);
-            return "done";
-        }
-        @Override
-        protected void onPostExecute(String result) {
-            super.onPostExecute(result);
-            tempView.setText(result);
-        }
+        mSensorManager.registerListener(this, mMagSensor, SensorManager.SENSOR_DELAY_FASTEST);
+        mSensorManager.registerListener(this, mAccSensor, SensorManager.SENSOR_DELAY_FASTEST);
+        mSensorManager.registerListener(this, mGyro, SensorManager.SENSOR_DELAY_FASTEST);
+        mSensorManager.registerListener(this, mLinear, SensorManager.SENSOR_DELAY_FASTEST);
     }
 
     @Override
